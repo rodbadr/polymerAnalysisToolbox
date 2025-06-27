@@ -1,0 +1,12 @@
+# Ignore specific file extensions
+*.gsd
+*.out
+*.dat64
+*.o
+
+# Ignore a specific script file
+pushAll.sh
+
+# Ignore directories and their contents
+testers/
+__pycache__/
