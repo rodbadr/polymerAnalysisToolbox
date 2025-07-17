@@ -41,41 +41,35 @@ def computeCOM(x_i):
 
     return com
 
-def centerCOM_periodic(positions, Lx, Ly, Lz):
+def centerCOM_periodic(positions, Lx, Ly, Lz, originAtCenter=True):
     """
     Center the center of mass of the system in a periodic box.
     positions: positions of the particles
     Lx, Ly, Lz: box dimensions
+    originAtCenter: if True, the origin of the coordinate system is centered at the center of the box.
     """
-    com = np.array([computeCOM_periodic(positions[:, 0], Lx),
-                    computeCOM_periodic(positions[:, 1], Ly),
-                    computeCOM_periodic(positions[:, 2], Lz)])
+    if originAtCenter:
+        com = np.array([computeCOM_periodic(positions[:, 0] + Lx/2.0, Lx) - Lx/2.0,
+                        computeCOM_periodic(positions[:, 1] + Ly/2.0, Ly) - Ly/2.0,
+                        computeCOM_periodic(positions[:, 2] + Lz/2.0, Lz) - Lz/2.0])
 
-    centered_positions = positions - com
-    centered_positions[:, 0]  = centered_positions[:, 0] % Lx
-    centered_positions[:, 1]  = centered_positions[:, 1] % Ly
-    centered_positions[:, 2]  = centered_positions[:, 2] % Lz
+        centered_positions = positions.copy()
+        centered_positions[:, 0]  = (centered_positions[:, 0] + Lx/2.0 - com[0]) % Lx - Lx/2.0
+        centered_positions[:, 1]  = (centered_positions[:, 1] + Ly/2.0 - com[1]) % Ly - Ly/2.0
+        centered_positions[:, 2]  = (centered_positions[:, 2] + Lz/2.0 - com[2]) % Lz - Lz/2.0
+
+    else:
+
+        com = np.array([computeCOM_periodic(positions[:, 0], Lx),
+                        computeCOM_periodic(positions[:, 1], Ly),
+                        computeCOM_periodic(positions[:, 2], Lz)])
+
+        centered_positions = positions - com
+        centered_positions[:, 0]  = centered_positions[:, 0] % Lx
+        centered_positions[:, 1]  = centered_positions[:, 1] % Ly
+        centered_positions[:, 2]  = centered_positions[:, 2] % Lz
 
     return centered_positions
-
-def centerCOM_periodic_originAtCenter(positions, Lx, Ly, Lz):
-    """
-    Center the center of mass of the system whith the origin at the center of the box.
-    positions: positions of the particles
-    Lx, Ly, Lz: box dimensions
-    """
-
-    com = np.array([computeCOM_periodic(positions[:, 0] + Lx/2.0, Lx) - Lx/2.0,
-                    computeCOM_periodic(positions[:, 1] + Ly/2.0, Ly) - Ly/2.0,
-                    computeCOM_periodic(positions[:, 2] + Lz/2.0, Lz) - Lz/2.0])
-
-    centered_positions = positions.copy()
-    centered_positions[:, 0]  = (centered_positions[:, 0] + Lx/2.0 - com[0]) % Lx - Lx/2.0
-    centered_positions[:, 1]  = (centered_positions[:, 1] + Ly/2.0 - com[1]) % Ly - Ly/2.0
-    centered_positions[:, 2]  = (centered_positions[:, 2] + Lz/2.0 - com[2]) % Lz - Lz/2.0
-
-    return centered_positions
-
 
 
 def computeRg_periodic_old(positions, Nchains, chainLength, Lx, Ly, Lz):
@@ -101,22 +95,29 @@ def computeRg_periodic_old(positions, Nchains, chainLength, Lx, Ly, Lz):
     return Rg
 
 
-def computeRg_periodic_originAtCenter(positions, Nchains, chainLength, Lx, Ly, Lz):
+def computeRg_periodic(positions, Nchains, chainLength, Lx, Ly, Lz, originAtCenter=True):
     """
     Compute the radius of gyration for a set of chains in periodic boundary conditions where the origin is at the center.
     positions: positions of the particles
     Nchains: number of chains
     chainLength: length of each chain
     Lx, Ly, Lz: box dimensions
+    originAtCenter: if True, the origin of the coordinate system is centered at the center of the box.
     """
     Rg = np.zeros(Nchains)
 
     for chain in range(Nchains):
         start = chain * chainLength
         end = start + chainLength
-        com = np.array([computeCOM_periodic(positions[start:end,0] + Lx/2.0, Lx) - Lx/2.0,
-                        computeCOM_periodic(positions[start:end,1] + Ly/2.0, Ly) - Ly/2.0,
-                        computeCOM_periodic(positions[start:end,2] + Lz/2.0, Lz) - Lz/2.0])
+
+        if originAtCenter:
+            com = np.array([computeCOM_periodic(positions[start:end,0] + Lx/2.0, Lx) - Lx/2.0,
+                            computeCOM_periodic(positions[start:end,1] + Ly/2.0, Ly) - Ly/2.0,
+                            computeCOM_periodic(positions[start:end,2] + Lz/2.0, Lz) - Lz/2.0])
+        else:
+            com = np.array([computeCOM(positions[start:end,0]),
+                            computeCOM(positions[start:end,1]),
+                            computeCOM(positions[start:end,2])])
         
         diff = positions[start:end].copy()
 
@@ -136,7 +137,7 @@ def computeRg_periodic_originAtCenter(positions, Nchains, chainLength, Lx, Ly, L
     return Rg
 
 
-def computeDensityProfile_3D(positions, DX, DY, DZ, Lx, Ly, Lz):
+def computeDensityProfile_3D(positions, DX, DY, DZ, Lx, Ly, Lz, originAtCenter=True):
     """
     Compute the density profile for a set of particles.
     positions: positions of the particles
@@ -151,8 +152,25 @@ def computeDensityProfile_3D(positions, DX, DY, DZ, Lx, Ly, Lz):
     if DZ == 0:
         DZ = Lz
 
-    # Create 2D histogram
-    hist, edges = np.histogramdd(positions, bins=[np.arange(0, Lx+DX*1e-8, DX), np.arange(0, Ly+DY*1e-8, DY), np.arange(0, Lz+DZ*1e-8, DZ)])
+    if originAtCenter:
+        if min(positions[:, 0]) < -Lx/2 or max(positions[:, 0]) > Lx/2 or \
+           min(positions[:, 1]) < -Ly/2 or max(positions[:, 1]) > Ly/2 or \
+           min(positions[:, 2]) < -Lz/2 or max(positions[:, 2]) > Lz/2:
+            
+            print("Warning: positions are outside the box dimensions.")
+
+        hist, edges = np.histogramdd(positions, bins=[np.arange(-Lx/2, Lx/2+DX*1e-8, DX), np.arange(-Ly/2, Ly/2+DY*1e-8, DY), np.arange(-Lz/2, Lz/2+DZ*1e-8, DZ)], density=False)
+
+    else:
+
+        if min(positions[:, 0]) < 0 or max(positions[:, 0]) > Lx or \
+           min(positions[:, 1]) < 0 or max(positions[:, 1]) > Ly or \
+           min(positions[:, 2]) < 0 or max(positions[:, 2]) > Lz:
+            
+            print("Warning: positions are outside the box dimensions.")
+
+        # Create 2D histogram
+        hist, edges = np.histogramdd(positions, bins=[np.arange(0, Lx+DX*1e-8, DX), np.arange(0, Ly+DY*1e-8, DY), np.arange(0, Lz+DZ*1e-8, DZ)],density=False)
 
     # Normalize histogram to get density
     density = hist / (DX * DY * DZ)
@@ -160,13 +178,14 @@ def computeDensityProfile_3D(positions, DX, DY, DZ, Lx, Ly, Lz):
     return density
 
 
-def wholeChains(positions, Nchains, chainLength, Lx, Ly, Lz):
+def wholeChains(positions, Nchains, chainLength, Lx, Ly, Lz, unwrapX=True, unwrapY=True, unwrapZ=True):
     """
     Make chains whole by unwrapping bonds that cross the periodic boundary.
     positions: positions of the particles
     Nchains: number of chains
     chainLength: length of each chain
     Lx, Ly, Lz: box dimensions
+    unwrapX, unwrapY, unwrapZ: if True, unwrap the positions in the corresponding direction
     """
     # Make a copy to avoid modifying original input
     new_positions = positions.copy()
@@ -180,17 +199,17 @@ def wholeChains(positions, Nchains, chainLength, Lx, Ly, Lz):
             dy = new_positions[i, 1] - new_positions[j, 1]
             dz = new_positions[i, 2] - new_positions[j, 2]
 
-            if abs(dx) > Lx / 2:
+            if (abs(dx) > Lx / 2) and unwrapX:
                 temp = new_positions[chain*chainLength:(chain+1)*chainLength, 0].copy()
                 temp[mon+1:] += np.sign(dx) * Lx
                 new_positions[chain*chainLength:(chain+1)*chainLength, 0] = temp
 
-            if abs(dy) > Ly / 2:
+            if (abs(dy) > Ly / 2) and unwrapY:
                 temp = new_positions[chain*chainLength:(chain+1)*chainLength, 1].copy()
                 temp[mon+1:] += np.sign(dy) * Ly
                 new_positions[chain*chainLength:(chain+1)*chainLength, 1] = temp
 
-            if abs(dz) > Lz / 2:
+            if (abs(dz) > Lz / 2) and unwrapZ:
                 temp = new_positions[chain*chainLength:(chain+1)*chainLength, 2].copy()
                 temp[mon+1:] += np.sign(dz) * Lz
                 new_positions[chain*chainLength:(chain+1)*chainLength, 2] = temp
