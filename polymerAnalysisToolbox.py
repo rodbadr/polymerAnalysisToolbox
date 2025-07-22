@@ -277,3 +277,42 @@ def openGSDTrajectory(fname):
     t = gsd.hoomd.open(name=fname, mode=open_mode)
 
     return t
+
+def writeNewTrajectory_unwrapped_and_whole(file_in, file_out, ref_frame_whole, Lx, Ly, Lz):
+    """
+    Write a new GSD trajectory with unwrapped and whole chains.
+    t: trajectory object
+    fname: filename to write the new trajectory
+    ref_frame_whole: reference frame with whole chains
+    Lx, Ly, Lz: box dimensions
+    """
+    # Load original trajectory
+    with gsd.hoomd.open(file_in, 'rb') as traj:
+        total_frames = len(traj)
+        print(f"Original number of frames: {total_frames}")
+
+        # Floor to nearest multiple of 100
+        rounded_frames = int(np.floor(total_frames / 100)) * 100
+        print(f"Target number of frames: {rounded_frames}")
+
+        # keep the last frames
+        keep_indices = np.arange(total_frames - rounded_frames, total_frames, dtype=int)
+
+        # Write to temporary file
+        frame0 = traj[int(keep_indices[0])]
+        ref_frame_whole = frame0.particles.position[:].copy()
+        ref_frame_whole = wholeChains(ref_frame_whole, Nchains, chainLength, frame0.configuration.box[0], frame0.configuration.box[1], frame0.configuration.box[2])
+
+        # with gsd.hoomd.open(temp_file, 'wb') as trimmed:
+        #     for i in keep_indices[0:3]:
+        #         frame = traj[int(i)]
+        #         if i < keep_indices[3]:
+        #             frame.particles.position[:] = shift_by_reference(frame.particles.position[:], frame.particles.image[:], frame0.particles.position[:], frame0.particles.image[:], frame0.configuration.box[0], frame0.configuration.box[1], frame0.configuration.box[2])
+        #             # frame.particles.image[:]  = frame.particles.image[:] - frame0.particles.image[:]
+        #         trimmed.append(frame)
+
+        with gsd.hoomd.open(file_out, 'wb') as trimmed:
+            for i in keep_indices:
+                frame = traj[int(i)]
+                frame.particles.position[:] = unwrap_while_whole(frame.particles.position[:], frame.particles.image[:], frame0.particles.position[:], frame0.particles.image[:], ref_frame_whole, frame0.configuration.box[0], frame0.configuration.box[1], frame0.configuration.box[2])
+                trimmed.append(frame)
