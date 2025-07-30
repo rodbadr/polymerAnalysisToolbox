@@ -6,6 +6,11 @@ import sys
 
 pi = np.pi
 
+""" TODO: 
+            -Add density profile fitting
+            -Write test script to test the functions in this module
+"""
+
 def computeCOM_periodic(x_i, L_i):
 
     """ 
@@ -43,10 +48,10 @@ def computeCOM(x_i):
 
 def centerCOM_periodic(positions, Lx, Ly, Lz, originAtCenter=True):
     """
-    Center the center of mass of the system in a periodic box.
+    Place the center of mass of the system at the center in a periodic box.
     positions: positions of the particles
     Lx, Ly, Lz: box dimensions
-    originAtCenter: if True, the origin of the coordinate system is centered at the center of the box.
+    originAtCenter: if True, the origin of the coordinate system is at the center of the box.
     """
     if originAtCenter:
         com = np.array([computeCOM_periodic(positions[:, 0] + Lx/2.0, Lx) - Lx/2.0,
@@ -64,7 +69,7 @@ def centerCOM_periodic(positions, Lx, Ly, Lz, originAtCenter=True):
                         computeCOM_periodic(positions[:, 1], Ly),
                         computeCOM_periodic(positions[:, 2], Lz)])
 
-        centered_positions = positions - com
+        centered_positions = positions - com + np.array([Lx/2.0, Ly/2.0, Lz/2.0])
         centered_positions[:, 0]  = centered_positions[:, 0] % Lx
         centered_positions[:, 1]  = centered_positions[:, 1] % Ly
         centered_positions[:, 2]  = centered_positions[:, 2] % Lz
@@ -141,7 +146,7 @@ def computeDensityProfile_3D(positions, DX, DY, DZ, Lx, Ly, Lz, originAtCenter=T
     """
     Compute the density profile for a set of particles.
     positions: positions of the particles
-    DX, DY, DZ: bin sizes in each dimension
+    DX, DY, DZ: bin sizes in each dimension. Set to 0 to use the entire box length
     Lx, Ly, Lz: box dimensions
     """
 
@@ -219,7 +224,7 @@ def wholeChains(positions, Nchains, chainLength, Lx, Ly, Lz, unwrapX=True, unwra
 
 def unwrap_while_whole(positions, images, ref_pos, ref_images, ref_frame_whole, Lx, Ly, Lz):
     """
-    Shift positions by the reference position accounting for image
+    Shift positions by the reference position accounting for image data
     and make sure the chains are whole.
     positions: positions of the particles
     images: images of the particles
@@ -278,41 +283,78 @@ def openGSDTrajectory(fname):
 
     return t
 
-def writeNewTrajectory_unwrapped_and_whole(file_in, file_out, ref_frame_whole, Lx, Ly, Lz):
+
+def nonUniformFT_brute(times, signal, n_freqs=100, maxFreq=None):
     """
-    Write a new GSD trajectory with unwrapped and whole chains.
-    t: trajectory object
-    fname: filename to write the new trajectory
-    ref_frame_whole: reference frame with whole chains
-    Lx, Ly, Lz: box dimensions
+    Compute the non-uniform Fourier transform (NUFT) of a signal using a brute-force approach.
+
+    Parameters:
+    - times: 1D array of time points (must be sorted)
+    - signal: 1D array of signal values at those time points
+    - n_freqs: number of frequency points to compute (default: 100)
+    - maxFreq: maximum frequency to consider (default: Nyquist frequency based on the smallest time interval)
+
+    Returns:
+    - freqs: 1D array of frequency points
+    - transform: 1D array of complex Fourier coefficients
     """
-    # Load original trajectory
-    with gsd.hoomd.open(file_in, 'rb') as traj:
-        total_frames = len(traj)
-        print(f"Original number of frames: {total_frames}")
 
-        # Floor to nearest multiple of 100
-        rounded_frames = int(np.floor(total_frames / 100)) * 100
-        print(f"Target number of frames: {rounded_frames}")
+    if n_freqs > len(times)//2:
+        print("Warning: n_freqs is larger than half the number of time points. This may lead to aliasing.")
 
-        # keep the last frames
-        keep_indices = np.arange(total_frames - rounded_frames, total_frames, dtype=int)
+    if maxFreq is None:
+        maxFreq = 1/(2*np.min(np.diff(times)))
+    # Number of frequency points (you can adjust this)
+    freqs = np.linspace(0, maxFreq, n_freqs)  # up to Nyquist freq for smallest interval
 
-        # Write to temporary file
-        frame0 = traj[int(keep_indices[0])]
-        ref_frame_whole = frame0.particles.position[:].copy()
-        ref_frame_whole = wholeChains(ref_frame_whole, Nchains, chainLength, frame0.configuration.box[0], frame0.configuration.box[1], frame0.configuration.box[2])
+    # Compute NUDFT
+    transform = np.zeros(n_freqs, dtype=complex)
+    for k, f in enumerate(freqs):
+        transform[k] = np.sum(signal * np.exp(-2j * np.pi * f * times))
 
-        # with gsd.hoomd.open(temp_file, 'wb') as trimmed:
-        #     for i in keep_indices[0:3]:
-        #         frame = traj[int(i)]
-        #         if i < keep_indices[3]:
-        #             frame.particles.position[:] = shift_by_reference(frame.particles.position[:], frame.particles.image[:], frame0.particles.position[:], frame0.particles.image[:], frame0.configuration.box[0], frame0.configuration.box[1], frame0.configuration.box[2])
-        #             # frame.particles.image[:]  = frame.particles.image[:] - frame0.particles.image[:]
-        #         trimmed.append(frame)
+    return freqs, transform
 
-        with gsd.hoomd.open(file_out, 'wb') as trimmed:
-            for i in keep_indices:
-                frame = traj[int(i)]
-                frame.particles.position[:] = unwrap_while_whole(frame.particles.position[:], frame.particles.image[:], frame0.particles.position[:], frame0.particles.image[:], ref_frame_whole, frame0.configuration.box[0], frame0.configuration.box[1], frame0.configuration.box[2])
-                trimmed.append(frame)
+# Example usage (uncomment and replace with your actual data):
+# times = np.sort(np.random.uniform(0, 10, 1000))
+# signal = np.sin(2 * np.pi * 1.5 * times) + 0.5 * np.random.randn(len(times))
+# plot_nufft_spectrum(times, signal)
+
+
+# def writeNewTrajectory_unwrapped_and_whole(file_in, file_out, ref_frame_whole, Lx, Ly, Lz):
+#     """
+#     Write a new GSD trajectory with unwrapped and whole chains.
+#     t: trajectory object
+#     fname: filename to write the new trajectory
+#     ref_frame_whole: reference frame with whole chains
+#     Lx, Ly, Lz: box dimensions
+#     """
+#     # Load original trajectory
+#     with gsd.hoomd.open(file_in, 'rb') as traj:
+#         total_frames = len(traj)
+#         print(f"Original number of frames: {total_frames}")
+
+#         # Floor to nearest multiple of 100
+#         rounded_frames = int(np.floor(total_frames / 100)) * 100
+#         print(f"Target number of frames: {rounded_frames}")
+
+#         # keep the last frames
+#         keep_indices = np.arange(total_frames - rounded_frames, total_frames, dtype=int)
+
+#         # Write to temporary file
+#         frame0 = traj[int(keep_indices[0])]
+#         ref_frame_whole = frame0.particles.position[:].copy()
+#         ref_frame_whole = wholeChains(ref_frame_whole, Nchains, chainLength, frame0.configuration.box[0], frame0.configuration.box[1], frame0.configuration.box[2])
+
+#         # with gsd.hoomd.open(temp_file, 'wb') as trimmed:
+#         #     for i in keep_indices[0:3]:
+#         #         frame = traj[int(i)]
+#         #         if i < keep_indices[3]:
+#         #             frame.particles.position[:] = shift_by_reference(frame.particles.position[:], frame.particles.image[:], frame0.particles.position[:], frame0.particles.image[:], frame0.configuration.box[0], frame0.configuration.box[1], frame0.configuration.box[2])
+#         #             # frame.particles.image[:]  = frame.particles.image[:] - frame0.particles.image[:]
+#         #         trimmed.append(frame)
+
+#         with gsd.hoomd.open(file_out, 'wb') as trimmed:
+#             for i in keep_indices:
+#                 frame = traj[int(i)]
+#                 frame.particles.position[:] = unwrap_while_whole(frame.particles.position[:], frame.particles.image[:], frame0.particles.position[:], frame0.particles.image[:], ref_frame_whole, frame0.configuration.box[0], frame0.configuration.box[1], frame0.configuration.box[2])
+#                 trimmed.append(frame)
