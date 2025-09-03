@@ -148,6 +148,7 @@ def computeDensityProfile_3D(positions, DX, DY, DZ, Lx, Ly, Lz, originAtCenter=T
     positions: positions of the particles
     DX, DY, DZ: bin sizes in each dimension. Set to 0 to use the entire box length
     Lx, Ly, Lz: box dimensions
+    originAtCenter: if True, the origin is at the center of the box
     """
 
     if DX == 0:
@@ -174,11 +175,51 @@ def computeDensityProfile_3D(positions, DX, DY, DZ, Lx, Ly, Lz, originAtCenter=T
             
             print("Warning: positions are outside the box dimensions.")
 
-        # Create 2D histogram
         hist, edges = np.histogramdd(positions, bins=[np.arange(0, Lx+DX*1e-8, DX), np.arange(0, Ly+DY*1e-8, DY), np.arange(0, Lz+DZ*1e-8, DZ)],density=False)
 
     # Normalize histogram to get density
     density = hist / (DX * DY * DZ)
+
+    return density
+
+
+def computeDensityProfile_1D(positions, Di, Lx, Ly, Lz, dim = 2, originAtCenter=True):
+    """
+    Compute the 1D density profile for a set of particles.
+    positions: positions of the particles
+    Di: bin sizes in the desired dimension.
+    Lx, Ly, Lz: box dimensions
+    dim: dimension to compute the density profile
+    originAtCenter: if True, the origin is at the center of the box
+    """
+
+    if dim == 0:
+        Li = Lx
+        Area = Ly * Lz
+    elif dim == 1:
+        Li = Ly
+        Area = Lx * Lz
+    elif dim == 2:
+        Li = Lz
+        Area = Lx * Ly
+
+    if originAtCenter:
+        if min(positions[:, dim]) < -Li/2 or max(positions[:, dim]) > Li/2:
+
+            print("Warning: positions are outside the box dimensions.")
+
+        hist, edges = np.histogram(positions[:, dim], bins=np.arange(-Li/2, Li/2+Di*1e-8, Di), density=False)
+
+    else:
+
+        if min(positions[:, dim]) < 0 or max(positions[:, dim]) > Li:
+
+            print("Warning: positions are outside the box dimensions.")
+
+        hist, edges = np.histogramd(positions, bins=np.arange(0, Li+Di*1e-8, Di),density=False)
+
+    # Normalize histogram to get density
+    density = hist / (Di * Area)
 
     return density
 
@@ -284,7 +325,7 @@ def openGSDTrajectory(fname):
     return t
 
 
-def nonUniformFT_brute(times, signal, n_freqs=100, maxFreq=None):
+def nonUniformFT_brute(times, signal, n_freqs=100, maxFreq=None, freqs=None):
     """
     Compute the non-uniform Fourier transform (NUFT) of a signal using a brute-force approach.
 
@@ -292,32 +333,158 @@ def nonUniformFT_brute(times, signal, n_freqs=100, maxFreq=None):
     - times: 1D array of time points (must be sorted)
     - signal: 1D array of signal values at those time points
     - n_freqs: number of frequency points to compute (default: 100)
-    - maxFreq: maximum frequency to consider (default: Nyquist frequency based on the smallest time interval)
+    - maxFreq: maximum frequency to consider (optional, defaults to Nyquist frequency computed below)
+    - freqs: 1D array of frequency points (optional)
 
     Returns:
     - freqs: 1D array of frequency points
     - transform: 1D array of complex Fourier coefficients
+
+    NOTE 1: This calculates only in the positive frequency domain. 
+            This is only sufficient for real valued signals, not complex ones
+
+    NOTE 2: if the time points are in fact uniform, the frequency points are ideally sampled
+            from an array of the form: np.linspace(dt_min0, fs, len(times)/2)
+            where fs is the Nyquist (sampling) frequency: fs = 1/(2*dt_min) 
+            with dt_min the time interval between samples. At frequencies
+            not belonging to this array, spurious artifacts may appear.
+    """
+    if freqs is None: # compute with a uniform grid of frequencies
+        if n_freqs > len(times)//2:
+            print("Warning: n_freqs is larger than half the number of time points. This may lead to aliasing.")
+
+        if maxFreq is None: # if no maximum frequency is provided, use the Nyquist frequency as the maximum
+            maxFreq = 1/(2*np.min(np.diff(times)))
+
+        freqs = np.linspace(0, maxFreq, n_freqs)
+
+        # Compute NUFT
+        transform = np.zeros(n_freqs, dtype=complex)
+        for k, f in enumerate(freqs):
+            transform[k] = np.sum(signal * np.exp(-2j * np.pi * f * times))
+
+        return freqs, transform
+    
+    else: # if an array of frequencies is provided, use the frequencies in the array
+
+        # Compute NUFT
+        transform = np.zeros(len(freqs), dtype=complex)
+        for k, f in enumerate(freqs):
+            transform[k] = np.sum(signal * np.exp(-2j * np.pi * f * times))
+
+        return freqs, transform
+
+
+def nonUniformFT_fast(times, signal, n_freqs=100, freqs=None):
+    """
+    Compute and plot the NUFFT spectrum of a non-uniformly sampled signal.
+
+    Parameters:
+    - times: 1D array of non-uniform sampling times
+    - signal: 1D array of signal values at those times
+    - n_freqs: number of frequency bins (default 100)
+    - freqs: 1D array of frequency points (optional)
+
+    NOTE: if the time points are in fact uniform, the frequency points are ideally sampled
+          from an array of the form: np.linspace(dt_min0, fs, len(times)/2)
+          where fs is the Nyquist (sampling) frequency: fs = 1/(2*dt_min) 
+          with dt_min the time interval between samples. At frequencies
+          not belonging to this array, spurious artifacts may appear.
     """
 
-    if n_freqs > len(times)//2:
-        print("Warning: n_freqs is larger than half the number of time points. This may lead to aliasing.")
+    try:
+        import finufft
 
-    if maxFreq is None:
-        maxFreq = 1/(2*np.min(np.diff(times)))
-    # Number of frequency points (you can adjust this)
-    freqs = np.linspace(0, maxFreq, n_freqs)  # up to Nyquist freq for smallest interval
+    except ImportError:
+        print("ERROR: finufft is not installed. Please install it to use this function.\n To install you can use: pip install finufft")
+        sys.exit(1)
 
-    # Compute NUDFT
-    transform = np.zeros(n_freqs, dtype=complex)
-    for k, f in enumerate(freqs):
-        transform[k] = np.sum(signal * np.exp(-2j * np.pi * f * times))
+    # Rescale time to [-π, π] as required by finufft
+    t_min = np.min(times)
+    t_max = np.max(times)
+    t_scaled = 2 * np.pi * (times - t_min) / (t_max - t_min) - np.pi
 
-    return freqs, transform
+    if freqs is None: # Compute fiNUFFT type 1: non-uniform time to uniform frequency
+        
+        transform = finufft.nufft1d1(t_scaled, signal.astype(np.complex128), n_freqs)
 
-# Example usage (uncomment and replace with your actual data):
-# times = np.sort(np.random.uniform(0, 10, 1000))
-# signal = np.sin(2 * np.pi * 1.5 * times) + 0.5 * np.random.randn(len(times))
-# plot_nufft_spectrum(times, signal)
+        # finufft works by dividing the time domain into equal bins of size dt
+        # then assigning the frequencies
+        dt = (t_max - t_min)/n_freqs
+
+        # Compute corresponding frequencies
+        freqs = np.fft.fftfreq(n_freqs, d=dt)
+        freqs = np.fft.fftshift(freqs)  # Center zero frequency
+
+        return freqs, transform
+
+    else: # Compute fiNUFFT type 3: non-uniform time to specific frequencies
+
+        dt_min = np.min(np.diff(np.sort(times)))
+        tempNmeas = t_max/dt_min
+        tempFreqs = freqs*tempNmeas*dt_min # scale frequencies to the range used by finufft (index based)
+
+        transform = finufft.nufft1d3(t_scaled, signal.astype(np.complex128), tempFreqs)
+
+        return freqs, transform
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# def nonUniformFT_fast3(times, signal, n_freqs=100, maxFreq=None, logarithmic = True):
+
+#     """
+#     Compute and plot the NUFFT spectrum of a non-uniformly sampled signal.
+
+#     Parameters:
+#     - times: 1D array of non-uniform sampling times
+#     - signal: 1D array of signal values at those times
+#     - n_freqs: number of frequency bins (default 100)
+#     """
+    
+#     import finufft
+    
+#     # Rescale time to [-π, π] as required by finufft
+#     t_min = np.min(times)
+#     t_max = np.max(times)
+#     t_scaled = 2 * np.pi * (times - t_min) / (t_max - t_min) - np.pi
+#     dt_min = np.min(np.diff(np.sort(times)))
+#     tempNmeas = t_max/dt_min
+
+#     # Compute NUFFT: non-uniform time → uniform frequency
+
+#     if (maxFreq is None) or ( maxFreq > 1/(2*dt_min) ):
+#         maxFreq = 1/(2*dt_min)
+
+#     if maxFreq < 1/t_max:
+#         print("ERROR: maxFreq is smaller than the smallest measureable frequency.")
+#         exit(1)
+
+#     if logarithmic:
+#         # Logarithmically spaced frequencies between 0 and maxFreq (excluding zero)
+#         freqs = np.logspace(np.log10(1/t_max), np.log10(maxFreq), n_freqs)
+#     else:
+#         # Linearly spaced frequencies between 0 and maxFreq
+#         freqs = np.linspace(0, maxFreq, n_freqs)
+
+#     tempFreqs = freqs*tempNmeas*dt_min
+
+#     transform = finufft.nufft1d3(t_scaled, signal.astype(np.complex128), tempFreqs)
+
+#     return freqs, transform
 
 
 # def writeNewTrajectory_unwrapped_and_whole(file_in, file_out, ref_frame_whole, Lx, Ly, Lz):
