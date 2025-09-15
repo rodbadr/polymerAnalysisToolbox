@@ -325,7 +325,7 @@ def openGSDTrajectory(fname):
     return t
 
 
-def nonUniformFT_brute(times, signal, n_freqs=100, maxFreq=None, freqs=None):
+def nonUniformFT_brute(times, signal, n_freqs=100, maxFreq=None, freqs=None, integrate=False):
     """
     Compute the non-uniform Fourier transform (NUFT) of a signal using a brute-force approach.
 
@@ -335,6 +335,7 @@ def nonUniformFT_brute(times, signal, n_freqs=100, maxFreq=None, freqs=None):
     - n_freqs: number of frequency points to compute (default: 100)
     - maxFreq: maximum frequency to consider (optional, defaults to Nyquist frequency computed below)
     - freqs: 1D array of frequency points (optional)
+    - integrate: if True, multiply the difference in time points before summing (default: False)
 
     Returns:
     - freqs: 1D array of frequency points
@@ -361,7 +362,11 @@ def nonUniformFT_brute(times, signal, n_freqs=100, maxFreq=None, freqs=None):
         # Compute NUFT
         transform = np.zeros(n_freqs, dtype=complex)
         for k, f in enumerate(freqs):
-            transform[k] = np.sum(signal * np.exp(-2j * np.pi * f * times))
+            if integrate:
+                dt_temp = np.diff(times, prepend=0)
+                transform[k] = np.sum(signal * np.exp(-2j * np.pi * f * times) * dt_temp)
+            else:
+                transform[k] = np.sum(signal * np.exp(-2j * np.pi * f * times))
 
         return freqs, transform
     
@@ -370,12 +375,16 @@ def nonUniformFT_brute(times, signal, n_freqs=100, maxFreq=None, freqs=None):
         # Compute NUFT
         transform = np.zeros(len(freqs), dtype=complex)
         for k, f in enumerate(freqs):
-            transform[k] = np.sum(signal * np.exp(-2j * np.pi * f * times))
+            if integrate:
+                dt_temp = np.diff(times, prepend=0)
+                transform[k] = np.sum(signal * np.exp(-2j * np.pi * f * times) * dt_temp)
+            else:
+                transform[k] = np.sum(signal * np.exp(-2j * np.pi * f * times))
 
         return freqs, transform
 
 
-def nonUniformFT_fast(times, signal, n_freqs=100, freqs=None):
+def nonUniformFT_fast(times, signal, n_freqs=100, freqs=None, integrate=False):
     """
     Compute and plot the NUFFT spectrum of a non-uniformly sampled signal.
 
@@ -384,6 +393,7 @@ def nonUniformFT_fast(times, signal, n_freqs=100, freqs=None):
     - signal: 1D array of signal values at those times
     - n_freqs: number of frequency bins (default 100)
     - freqs: 1D array of frequency points (optional)
+    - integrate: if True, multiply the difference in time points before transforming (default: False)
 
     NOTE: if the time points are in fact uniform, the frequency points are ideally sampled
           from an array of the form: np.linspace(dt_min0, fs, len(times)/2)
@@ -405,10 +415,14 @@ def nonUniformFT_fast(times, signal, n_freqs=100, freqs=None):
     t_scaled = 2 * np.pi * (times - t_min) / (t_max - t_min) - np.pi
 
     if freqs is None: # Compute fiNUFFT type 1: non-uniform time to uniform frequency
+
+        if integrate:
+            dt_temp = np.diff(times, prepend=0)
+            signal = signal * dt_temp
         
         transform = finufft.nufft1d1(t_scaled, signal.astype(np.complex128), n_freqs)
 
-        # finufft works by dividing the time domain into equal bins of size dt
+        # finufft type 1 works by dividing the time domain into equal bins of size dt
         # then assigning the frequencies
         dt = (t_max - t_min)/n_freqs
 
@@ -420,6 +434,10 @@ def nonUniformFT_fast(times, signal, n_freqs=100, freqs=None):
 
     else: # Compute fiNUFFT type 3: non-uniform time to specific frequencies
 
+        if integrate:
+            dt_temp = np.diff(times, prepend=0)
+            signal = signal * dt_temp
+
         dt_min = np.min(np.diff(np.sort(times)))
         tempNmeas = t_max/dt_min
         tempFreqs = freqs*tempNmeas*dt_min # scale frequencies to the range used by finufft (index based)
@@ -428,100 +446,3 @@ def nonUniformFT_fast(times, signal, n_freqs=100, freqs=None):
 
         return freqs, transform
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# def nonUniformFT_fast3(times, signal, n_freqs=100, maxFreq=None, logarithmic = True):
-
-#     """
-#     Compute and plot the NUFFT spectrum of a non-uniformly sampled signal.
-
-#     Parameters:
-#     - times: 1D array of non-uniform sampling times
-#     - signal: 1D array of signal values at those times
-#     - n_freqs: number of frequency bins (default 100)
-#     """
-    
-#     import finufft
-    
-#     # Rescale time to [-π, π] as required by finufft
-#     t_min = np.min(times)
-#     t_max = np.max(times)
-#     t_scaled = 2 * np.pi * (times - t_min) / (t_max - t_min) - np.pi
-#     dt_min = np.min(np.diff(np.sort(times)))
-#     tempNmeas = t_max/dt_min
-
-#     # Compute NUFFT: non-uniform time → uniform frequency
-
-#     if (maxFreq is None) or ( maxFreq > 1/(2*dt_min) ):
-#         maxFreq = 1/(2*dt_min)
-
-#     if maxFreq < 1/t_max:
-#         print("ERROR: maxFreq is smaller than the smallest measureable frequency.")
-#         exit(1)
-
-#     if logarithmic:
-#         # Logarithmically spaced frequencies between 0 and maxFreq (excluding zero)
-#         freqs = np.logspace(np.log10(1/t_max), np.log10(maxFreq), n_freqs)
-#     else:
-#         # Linearly spaced frequencies between 0 and maxFreq
-#         freqs = np.linspace(0, maxFreq, n_freqs)
-
-#     tempFreqs = freqs*tempNmeas*dt_min
-
-#     transform = finufft.nufft1d3(t_scaled, signal.astype(np.complex128), tempFreqs)
-
-#     return freqs, transform
-
-
-# def writeNewTrajectory_unwrapped_and_whole(file_in, file_out, ref_frame_whole, Lx, Ly, Lz):
-#     """
-#     Write a new GSD trajectory with unwrapped and whole chains.
-#     t: trajectory object
-#     fname: filename to write the new trajectory
-#     ref_frame_whole: reference frame with whole chains
-#     Lx, Ly, Lz: box dimensions
-#     """
-#     # Load original trajectory
-#     with gsd.hoomd.open(file_in, 'rb') as traj:
-#         total_frames = len(traj)
-#         print(f"Original number of frames: {total_frames}")
-
-#         # Floor to nearest multiple of 100
-#         rounded_frames = int(np.floor(total_frames / 100)) * 100
-#         print(f"Target number of frames: {rounded_frames}")
-
-#         # keep the last frames
-#         keep_indices = np.arange(total_frames - rounded_frames, total_frames, dtype=int)
-
-#         # Write to temporary file
-#         frame0 = traj[int(keep_indices[0])]
-#         ref_frame_whole = frame0.particles.position[:].copy()
-#         ref_frame_whole = wholeChains(ref_frame_whole, Nchains, chainLength, frame0.configuration.box[0], frame0.configuration.box[1], frame0.configuration.box[2])
-
-#         # with gsd.hoomd.open(temp_file, 'wb') as trimmed:
-#         #     for i in keep_indices[0:3]:
-#         #         frame = traj[int(i)]
-#         #         if i < keep_indices[3]:
-#         #             frame.particles.position[:] = shift_by_reference(frame.particles.position[:], frame.particles.image[:], frame0.particles.position[:], frame0.particles.image[:], frame0.configuration.box[0], frame0.configuration.box[1], frame0.configuration.box[2])
-#         #             # frame.particles.image[:]  = frame.particles.image[:] - frame0.particles.image[:]
-#         #         trimmed.append(frame)
-
-#         with gsd.hoomd.open(file_out, 'wb') as trimmed:
-#             for i in keep_indices:
-#                 frame = traj[int(i)]
-#                 frame.particles.position[:] = unwrap_while_whole(frame.particles.position[:], frame.particles.image[:], frame0.particles.position[:], frame0.particles.image[:], ref_frame_whole, frame0.configuration.box[0], frame0.configuration.box[1], frame0.configuration.box[2])
-#                 trimmed.append(frame)
