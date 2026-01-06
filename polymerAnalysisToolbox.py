@@ -354,8 +354,11 @@ def nonUniformFT_brute(times, signal, n_freqs=100, maxFreq=None, freqs=None, int
         if n_freqs > len(times)//2:
             print("Warning: n_freqs is larger than half the number of time points. This may lead to aliasing.")
 
-        if maxFreq is None: # if no maximum frequency is provided, use the Nyquist frequency as the maximum
-            maxFreq = 1/(2*np.min(np.diff(times)))
+        if maxFreq is None: # if no maximum frequency is provided, divide time into n_freqs intervals
+            t_min = np.min(times)
+            t_max = np.max(times)
+            dt = (t_max - t_min)/n_freqs
+            maxFreq = 1/dt
 
         freqs = np.linspace(0, maxFreq, n_freqs)
 
@@ -438,11 +441,82 @@ def nonUniformFT_fast(times, signal, n_freqs=100, freqs=None, integrate=False):
             dt_temp = np.diff(times, prepend=0)
             signal = signal * dt_temp
 
-        dt_min = np.min(np.diff(np.sort(times)))
-        tempNmeas = t_max/dt_min
-        tempFreqs = freqs*tempNmeas*dt_min # scale frequencies to the range used by finufft (index based)
+        freqs = freqs*1.0
 
-        transform = finufft.nufft1d3(t_scaled, signal.astype(np.complex128), tempFreqs)
+        transform = finufft.nufft1d3(x=t_scaled, c=signal.astype(np.complex128), s=freqs)
 
         return freqs, transform
 
+def testFourierTransforms():
+
+    
+    ####################################
+    ### Tests for Fourier transforms ###
+    ####################################
+
+    '''
+        The expected result is 3 lines with peaks at ff, 2*ff, 3*ff, and 10*ff
+    '''
+
+
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(num=101)
+    plt.ion()
+    
+    
+    amps = [1,4,2,1]
+
+
+    time = np.linspace(0, 10, 1000)
+    # time = np.logspace(np.log10(10e-3), np.log10(10), 1000)
+    ff = 1*2*pi
+    signal = amps[0]*np.sin(ff*time) + amps[1]*np.sin(2*ff*time) + amps[2]*np.sin(3*ff*time) + amps[3]*np.sin(10*ff*time)
+
+
+    ax.plot(time, signal,'d')
+
+    # ax.set_xscale('log')
+    # ax.set_yscale('log')
+
+    # input("Press enter to continue")
+    ax.cla()
+
+
+    nfreqs = len(time)//2*5
+
+    dt_min = np.min(np.diff(np.sort(time)))
+    fs = 1/(2*dt_min) # Nyquist frequency
+    f_min = 1/(time.max() - time.min())
+    f_max = nfreqs/(time.max() - time.min())
+
+    tempFreqs = np.linspace(0, f_max, nfreqs)
+    # tempFreqs = np.logspace(np.log10(f_min), np.log10(fs), nfreqs)
+
+
+    freqs1, transform1 = nonUniformFT_fast(time, signal, n_freqs=len(time)//2)
+    freqs2, transform2 = nonUniformFT_brute(time, signal, n_freqs=len(time)//2)
+    freqs3, transform3 = nonUniformFT_brute(time, signal, freqs = tempFreqs)
+    # freqs, transform = nonUniformFT_brute(time, signal, n_freqs=len(time)//2)
+
+    ### normalize by half the number of sample points to get the correct amplitude
+    ### this only works with uniform sampling
+
+    transform1 = transform1/(len(time)//2)
+    transform2 = transform2/(len(time)//2)
+    transform3 = transform3/(len(time)//2)
+
+    mask = freqs1 > 0
+    ax.plot(freqs1[mask], np.abs(transform1[mask]),'r', label='fast,uniform')
+    # ax.plot(np.abs(transform[mask]),'r')
+    
+    mask2 = freqs2 > 0
+    ax.plot(freqs2[mask2], np.abs(transform2[mask2]),'g', label='brute,uniform')
+
+    mask3 = freqs3 > 0
+    ax.plot(freqs3[mask3], np.abs(transform3[mask3]),'b', label='brute, non-uni')
+    
+    ax.legend()
+
+    input("Press enter to continue")
+    ax.cla()
